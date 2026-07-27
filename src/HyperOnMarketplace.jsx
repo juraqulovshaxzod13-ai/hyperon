@@ -93,6 +93,28 @@ async function deleteStoreRow(id) {
   if (error) console.error("Do'konni o'chirishda xatolik:", error.message);
 }
 
+async function loadReviews(productId) {
+  const { data, error } = await supabase
+    .from("reviews")
+    .select("*")
+    .eq("product_id", productId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("Sharhlarni yuklashda xatolik:", error.message);
+    return null;
+  }
+  return data;
+}
+async function insertReview(review) {
+  const { error } = await supabase.from("reviews").insert(review);
+  if (error) return error;
+  return null;
+}
+async function deleteReviewRow(id) {
+  const { error } = await supabase.from("reviews").delete().eq("id", id);
+  if (error) console.error("Sharhni o'chirishda xatolik:", error.message);
+}
+
 export default function HyperOnMarketplace() {
   const [products, setProducts] = useState(SEED_PRODUCTS);
   const [loaded, setLoaded] = useState(false);
@@ -134,6 +156,107 @@ export default function HyperOnMarketplace() {
   const [editingStoreId, setEditingStoreId] = useState(null);
   const [confirmDeleteStoreId, setConfirmDeleteStoreId] = useState(null);
   const [adminTab, setAdminTab] = useState("products");
+
+  const [session, setSession] = useState(null);
+  const [authModal, setAuthModal] = useState(null); // "login" | "signup" | null
+  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
+
+  const [detailProduct, setDetailProduct] = useState(null);
+  const [detailReviews, setDetailReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState("");
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const currentUser = session?.user || null;
+  const currentUserName = currentUser?.user_metadata?.name || currentUser?.email || "";
+
+  async function handleAuthSubmit() {
+    setAuthError("");
+    setAuthNotice("");
+    if (!authForm.email.trim() || !authForm.password) {
+      setAuthError("Email va parolni to'ldiring.");
+      return;
+    }
+    if (authModal === "signup" && !authForm.name.trim()) {
+      setAuthError("Ismingizni kiriting.");
+      return;
+    }
+    setAuthLoading(true);
+    if (authModal === "signup") {
+      const { data, error } = await supabase.auth.signUp({
+        email: authForm.email.trim(),
+        password: authForm.password,
+        options: { data: { name: authForm.name.trim() } },
+      });
+      setAuthLoading(false);
+      if (error) { setAuthError(error.message); return; }
+      if (data.session) {
+        setAuthModal(null);
+        setAuthForm({ name: "", email: "", password: "" });
+      } else {
+        setAuthNotice("Ro'yxatdan o'tish muvaffaqiyatli! Emailingizga yuborilgan havolani tasdiqlang, so'ng tizimga kiring.");
+      }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: authForm.email.trim(),
+        password: authForm.password,
+      });
+      setAuthLoading(false);
+      if (error) { setAuthError("Email yoki parol noto'g'ri."); return; }
+      setAuthModal(null);
+      setAuthForm({ name: "", email: "", password: "" });
+    }
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setPage("home");
+  }
+
+  async function openProductDetail(p) {
+    setDetailProduct(p);
+    setReviewRating(5);
+    setReviewComment("");
+    setReviewError("");
+    setReviewsLoading(true);
+    const data = await loadReviews(p.id);
+    setDetailReviews(Array.isArray(data) ? data : []);
+    setReviewsLoading(false);
+  }
+
+  function closeProductDetail() { setDetailProduct(null); }
+
+  async function submitReview() {
+    if (!currentUser) { setAuthModal("login"); return; }
+    if (!reviewComment.trim()) { setReviewError("Sharh matnini kiriting."); return; }
+    setReviewSubmitting(true);
+    setReviewError("");
+    const review = {
+      id: uid(),
+      product_id: detailProduct.id,
+      user_id: currentUser.id,
+      user_name: currentUserName,
+      rating: reviewRating,
+      comment: reviewComment.trim(),
+    };
+    const err = await insertReview(review);
+    setReviewSubmitting(false);
+    if (err) { setReviewError("Sharh yuborilmadi. Qayta urinib ko'ring."); return; }
+    setDetailReviews((prev) => [{ ...review, created_at: new Date().toISOString() }, ...prev]);
+    setReviewComment("");
+    setReviewRating(5);
+  }
 
   useEffect(() => {
     try {
@@ -402,15 +525,15 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
           {page === "admin" && isAdmin ? (
             <AdminView {...{ products, showForm, form, setForm, editingId, openAddForm, openEditForm, closeForm, handleSubmit, confirmDeleteId, setConfirmDeleteId, deleteProduct, saveStatus, logoutAdmin, stores, showStoreForm, storeForm, setStoreForm, editingStoreId, openAddStoreForm, openEditStoreForm, closeStoreForm, handleStoreSubmit, confirmDeleteStoreId, setConfirmDeleteStoreId, deleteStore, adminTab, setAdminTab }} />
           ) : page === "fav" ? (
-            <FavoritesView products={favoriteProducts} toggleFavorite={toggleFavorite} addToCart={addToCart} onBrowse={() => setPage("home")} />
+            <FavoritesView products={favoriteProducts} toggleFavorite={toggleFavorite} addToCart={addToCart} onBrowse={() => setPage("home")} onOpenDetail={openProductDetail} />
           ) : page === "cart" ? (
             <CartView entries={cartEntries} total={cartTotal} changeQty={changeQty} removeFromCart={removeFromCart} onBrowse={() => setPage("home")} onCheckout={() => setShowCheckout(true)} />
           ) : page === "profile" ? (
-            <ProfileView onOpenSection={setProfileSection} />
+            <ProfileView onOpenSection={setProfileSection} user={currentUser} userName={currentUserName} onLogin={() => setAuthModal("login")} onSignup={() => setAuthModal("signup")} onLogout={handleLogout} />
           ) : page === "storeDetail" ? (
-            <StoreDetailView store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onBack={() => setPage("home")} />
+            <StoreDetailView store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onBack={() => setPage("home")} onOpenDetail={openProductDetail} />
           ) : (
-            <StoreView products={filteredProducts} brands={brands} stores={stores} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onOpenAI={() => setShowAIModal(true)} />
+            <StoreView products={filteredProducts} brands={brands} stores={stores} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onOpenAI={() => setShowAIModal(true)} onOpenDetail={openProductDetail} />
           )}
         </div>
 
@@ -449,15 +572,15 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
         {page === "admin" && isAdmin ? (
           <AdminView desktop {...{ products, showForm, form, setForm, editingId, openAddForm, openEditForm, closeForm, handleSubmit, confirmDeleteId, setConfirmDeleteId, deleteProduct, saveStatus, logoutAdmin, stores, showStoreForm, storeForm, setStoreForm, editingStoreId, openAddStoreForm, openEditStoreForm, closeStoreForm, handleStoreSubmit, confirmDeleteStoreId, setConfirmDeleteStoreId, deleteStore, adminTab, setAdminTab }} />
         ) : page === "fav" ? (
-          <FavoritesView desktop products={favoriteProducts} toggleFavorite={toggleFavorite} addToCart={addToCart} onBrowse={() => setPage("home")} />
+          <FavoritesView desktop products={favoriteProducts} toggleFavorite={toggleFavorite} addToCart={addToCart} onBrowse={() => setPage("home")} onOpenDetail={openProductDetail} />
         ) : page === "cart" ? (
           <CartView desktop entries={cartEntries} total={cartTotal} changeQty={changeQty} removeFromCart={removeFromCart} onBrowse={() => setPage("home")} onCheckout={() => setShowCheckout(true)} />
         ) : page === "profile" ? (
-          <ProfileView desktop onOpenSection={setProfileSection} />
+          <ProfileView desktop onOpenSection={setProfileSection} user={currentUser} userName={currentUserName} onLogin={() => setAuthModal("login")} onSignup={() => setAuthModal("signup")} onLogout={handleLogout} />
         ) : page === "storeDetail" ? (
-          <StoreDetailView desktop store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onBack={() => setPage("home")} />
+          <StoreDetailView desktop store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onBack={() => setPage("home")} onOpenDetail={openProductDetail} />
         ) : (
-          <StoreView desktop products={filteredProducts} brands={brands} stores={stores} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onOpenAI={() => setShowAIModal(true)} />
+          <StoreView desktop products={filteredProducts} brands={brands} stores={stores} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onOpenAI={() => setShowAIModal(true)} onOpenDetail={openProductDetail} />
         )}
       </div>
 
@@ -528,7 +651,7 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
                   {aiResult.productIds.map((id) => {
                     const p = products.find((prod) => prod.id === id);
                     if (!p) return null;
-                    return <ProductCard key={p.id} p={p} isFav={!!favorites[p.id]} toggleFavorite={toggleFavorite} addToCart={addToCart} />;
+                    return <ProductCard key={p.id} p={p} isFav={!!favorites[p.id]} toggleFavorite={toggleFavorite} addToCart={addToCart} onOpenDetail={openProductDetail} />;
                   })}
                 </div>
                 <button
@@ -642,6 +765,117 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
           </div>
         </div>
       )}
+
+      {authModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[110] px-6">
+          <div className="bg-[#14141c] border border-white/10 rounded-2xl p-6 max-w-sm w-full">
+            <div className="flex items-center justify-between mb-4">
+              <p className="font-semibold">{authModal === "signup" ? "Ro'yxatdan o'tish" : "Tizimga kirish"}</p>
+              <button type="button" onClick={() => { setAuthModal(null); setAuthError(""); setAuthNotice(""); }} aria-label="Yopish"><X size={18} className="text-gray-400" /></button>
+            </div>
+
+            {authNotice ? (
+              <div className="text-center py-3">
+                <p className="text-sm text-violet-300 mb-4">{authNotice}</p>
+                <button type="button" onClick={() => { setAuthModal("login"); setAuthNotice(""); }} className="w-full bg-violet-600 hover:bg-violet-500 transition rounded-xl py-2.5 text-sm font-semibold">Kirish sahifasiga o'tish</button>
+              </div>
+            ) : (
+              <>
+                {authModal === "signup" && (
+                  <div className="mb-3">
+                    <label className="text-xs text-gray-400 block mb-1">Ismingiz</label>
+                    <input value={authForm.name} onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })} placeholder="Ismingizni kiriting" className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500" />
+                  </div>
+                )}
+                <div className="mb-3">
+                  <label className="text-xs text-gray-400 block mb-1">Email</label>
+                  <input type="email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} placeholder="email@example.com" className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500" />
+                </div>
+                <div className="mb-3">
+                  <label className="text-xs text-gray-400 block mb-1">Parol</label>
+                  <input type="password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} placeholder="Kamida 6 belgi" className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500" />
+                </div>
+                {authError && <p className="text-xs text-red-400 mb-2">{authError}</p>}
+                <button type="button" onClick={handleAuthSubmit} disabled={authLoading} className="w-full bg-violet-600 hover:bg-violet-500 transition rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50 mb-3">
+                  {authLoading ? "Yuborilmoqda..." : authModal === "signup" ? "Ro'yxatdan o'tish" : "Kirish"}
+                </button>
+                <button type="button" onClick={() => { setAuthModal(authModal === "signup" ? "login" : "signup"); setAuthError(""); }} className="w-full text-center text-xs text-gray-400">
+                  {authModal === "signup" ? "Hisobingiz bormi? Kirish" : "Hisobingiz yo'qmi? Ro'yxatdan o'ting"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {detailProduct && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[105] px-4">
+          <div className="bg-[#14141c] border border-white/10 rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto">
+            <div className="relative">
+              <ProductImage name={detailProduct.name} image={detailProduct.image} className="w-full aspect-square object-cover" />
+              <button type="button" onClick={closeProductDetail} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center" aria-label="Yopish"><X size={16} /></button>
+            </div>
+            <div className="p-5">
+              <p className="text-lg font-bold leading-tight">{detailProduct.name}</p>
+              <p className="text-sm text-gray-400 mb-2">{detailProduct.brand}</p>
+              <div className="flex items-center gap-1 mb-3">
+                {[1, 2, 3, 4, 5].map((n) => {
+                  const avg = detailReviews.length ? detailReviews.reduce((a, r) => a + r.rating, 0) / detailReviews.length : 0;
+                  return <Star key={n} size={16} className={n <= Math.round(avg) ? "fill-violet-400 text-violet-400" : "text-gray-600"} />;
+                })}
+                <span className="text-xs text-gray-400 ml-1">{detailReviews.length > 0 ? `${(detailReviews.reduce((a, r) => a + r.rating, 0) / detailReviews.length).toFixed(1)} (${detailReviews.length} sharh)` : "Hali sharh yo'q"}</span>
+              </div>
+              <p className="text-xl font-extrabold mb-4">{formatSum(detailProduct.price)}</p>
+              <button type="button" onClick={() => { addToCart(detailProduct.id); }} className="w-full bg-violet-600 hover:bg-violet-500 transition rounded-xl py-2.5 text-sm font-semibold mb-6">Savatchaga qo'shish</button>
+
+              <div className="border-t border-white/10 pt-4">
+                <p className="font-semibold mb-3">Sharhlar</p>
+
+                {currentUser ? (
+                  <div className="bg-black/30 border border-white/10 rounded-xl p-3 mb-4">
+                    <p className="text-xs text-gray-400 mb-1.5">Bahoingiz</p>
+                    <div className="flex items-center gap-1 mb-2">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button key={n} type="button" onClick={() => setReviewRating(n)} aria-label={`${n} yulduz`}>
+                          <Star size={20} className={n <= reviewRating ? "fill-violet-400 text-violet-400" : "text-gray-600"} />
+                        </button>
+                      ))}
+                    </div>
+                    <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={2} placeholder="Mahsulot haqida fikringiz..." className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500 resize-none mb-2" />
+                    {reviewError && <p className="text-xs text-red-400 mb-2">{reviewError}</p>}
+                    <button type="button" onClick={submitReview} disabled={reviewSubmitting} className="w-full bg-violet-600/90 hover:bg-violet-500 transition rounded-xl py-2 text-xs font-semibold disabled:opacity-50">
+                      {reviewSubmitting ? "Yuborilmoqda..." : "Sharh qoldirish"}
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setAuthModal("login")} className="w-full border border-white/10 rounded-xl py-2.5 text-sm text-gray-300 mb-4">Sharh qoldirish uchun tizimga kiring</button>
+                )}
+
+                {reviewsLoading ? (
+                  <p className="text-xs text-gray-500 text-center py-4">Yuklanmoqda...</p>
+                ) : detailReviews.length === 0 ? (
+                  <p className="text-xs text-gray-500 text-center py-4">Hali sharhlar yo'q. Birinchi bo'lib fikr bildiring!</p>
+                ) : (
+                  <div className="space-y-3">
+                    {detailReviews.map((r) => (
+                      <div key={r.id} className="bg-black/30 border border-white/10 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-sm font-medium">{r.user_name}</p>
+                          <div className="flex items-center gap-0.5">
+                            {[1, 2, 3, 4, 5].map((n) => <Star key={n} size={12} className={n <= r.rating ? "fill-violet-400 text-violet-400" : "text-gray-600"} />)}
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-300">{r.comment}</p>
+                        <p className="text-[11px] text-gray-500 mt-1">{new Date(r.created_at).toLocaleDateString("uz-UZ")}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -658,19 +892,23 @@ function CategoryChips({ activeCategory, setActiveCategory }) {
   );
 }
 
-function ProductCard({ p, isFav, toggleFavorite, addToCart }) {
+function ProductCard({ p, isFav, toggleFavorite, addToCart, onOpenDetail }) {
   return (
     <div className="bg-[#14141c] border border-white/10 rounded-2xl overflow-hidden">
       <div className="relative">
-        <ProductImage name={p.name} image={p.image} className="w-full aspect-square object-cover" />
+        <div onClick={() => onOpenDetail && onOpenDetail(p)} role="button" tabIndex={0} className="cursor-pointer">
+          <ProductImage name={p.name} image={p.image} className="w-full aspect-square object-cover" />
+        </div>
         <button onClick={() => toggleFavorite(p.id)} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center" aria-label="Sevimliga qo'shish">
           <Heart size={14} className={isFav ? "fill-violet-400 text-violet-400" : "text-white"} />
         </button>
         {p.badge && <span className="absolute top-2 left-2 bg-violet-600 text-[10px] font-semibold px-2 py-0.5 rounded-full">{p.badge}</span>}
       </div>
       <div className="p-3">
-        <p className="text-sm font-medium leading-tight truncate">{p.name}</p>
-        <p className="text-xs text-gray-400 mb-1.5">{p.brand}</p>
+        <div onClick={() => onOpenDetail && onOpenDetail(p)} role="button" tabIndex={0} className="cursor-pointer">
+          <p className="text-sm font-medium leading-tight truncate">{p.name}</p>
+          <p className="text-xs text-gray-400 mb-1.5">{p.brand}</p>
+        </div>
         <div className="flex items-center justify-between">
           <span className="text-sm font-bold">{formatSum(p.price)}</span>
           <button onClick={() => addToCart(p.id)} className="w-7 h-7 rounded-full bg-violet-600 flex items-center justify-center" aria-label="Savatchaga qo'shish">
@@ -682,7 +920,7 @@ function ProductCard({ p, isFav, toggleFavorite, addToCart }) {
   );
 }
 
-function StoreView({ products, brands, stores, onSelectStore, query, setQuery, activeCategory, setActiveCategory, favorites, toggleFavorite, addToCart, gridCols, desktop, onOpenAI }) {
+function StoreView({ products, brands, stores, onSelectStore, query, setQuery, activeCategory, setActiveCategory, favorites, toggleFavorite, addToCart, gridCols, desktop, onOpenAI, onOpenDetail }) {
   return (
     <div>
       <div className={`flex items-center gap-2 bg-[#14141c] border border-white/10 rounded-2xl px-4 py-3 mb-4 ${desktop ? "max-w-xl" : ""}`}>
@@ -728,7 +966,7 @@ function StoreView({ products, brands, stores, onSelectStore, query, setQuery, a
           </div>
         ) : (
           <div className={`grid ${gridCols} gap-3`}>
-            {products.map((p) => <ProductCard key={p.id} p={p} isFav={!!favorites[p.id]} toggleFavorite={toggleFavorite} addToCart={addToCart} />)}
+            {products.map((p) => <ProductCard key={p.id} p={p} isFav={!!favorites[p.id]} toggleFavorite={toggleFavorite} addToCart={addToCart} onOpenDetail={onOpenDetail} />)}
           </div>
         )}
       </section>
@@ -743,7 +981,7 @@ function StoreView({ products, brands, stores, onSelectStore, query, setQuery, a
   );
 }
 
-function StoreDetailView({ store, products, favorites, toggleFavorite, addToCart, gridCols, onBack, desktop }) {
+function StoreDetailView({ store, products, favorites, toggleFavorite, addToCart, gridCols, onBack, desktop, onOpenDetail }) {
   if (!store) {
     return (
       <div className="text-center py-16">
@@ -789,14 +1027,14 @@ function StoreDetailView({ store, products, favorites, toggleFavorite, addToCart
         </div>
       ) : (
         <div className={`grid ${gridCols} gap-3`}>
-          {products.map((p) => <ProductCard key={p.id} p={p} isFav={!!favorites[p.id]} toggleFavorite={toggleFavorite} addToCart={addToCart} />)}
+          {products.map((p) => <ProductCard key={p.id} p={p} isFav={!!favorites[p.id]} toggleFavorite={toggleFavorite} addToCart={addToCart} onOpenDetail={onOpenDetail} />)}
         </div>
       )}
     </div>
   );
 }
 
-function FavoritesView({ products, toggleFavorite, addToCart, onBrowse, desktop }) {
+function FavoritesView({ products, toggleFavorite, addToCart, onBrowse, desktop, onOpenDetail }) {
   return (
     <div>
       <h2 className="text-lg font-bold mb-4">Sevimlilar</h2>
@@ -808,7 +1046,7 @@ function FavoritesView({ products, toggleFavorite, addToCart, onBrowse, desktop 
         </div>
       ) : (
         <div className={`grid ${desktop ? "grid-cols-4 lg:grid-cols-5" : "grid-cols-2"} gap-3`}>
-          {products.map((p) => <ProductCard key={p.id} p={p} isFav toggleFavorite={toggleFavorite} addToCart={addToCart} />)}
+          {products.map((p) => <ProductCard key={p.id} p={p} isFav toggleFavorite={toggleFavorite} addToCart={addToCart} onOpenDetail={onOpenDetail} />)}
         </div>
       )}
     </div>
@@ -856,17 +1094,34 @@ function CartView({ entries, total, changeQty, removeFromCart, onBrowse, onCheck
   );
 }
 
-function ProfileView({ desktop, onAdminClick, onOpenSection }) {
+function ProfileView({ desktop, onOpenSection, user, userName, onLogin, onSignup, onLogout }) {
   return (
     <div className={desktop ? "max-w-md" : ""}>
       <h2 className="text-lg font-bold mb-4">Profil</h2>
       <div className="bg-[#14141c] border border-white/10 rounded-2xl p-5 flex items-center gap-3 mb-4">
         <div className="w-12 h-12 rounded-full bg-violet-600/20 flex items-center justify-center"><User size={20} className="text-violet-300" /></div>
-        <div>
-          <p className="font-semibold">Mehmon foydalanuvchi</p>
-          <p className="text-xs text-gray-400">Kirish uchun ro'yxatdan o'ting</p>
+        <div className="min-w-0 flex-1">
+          {user ? (
+            <>
+              <p className="font-semibold truncate">{userName}</p>
+              <p className="text-xs text-gray-400 truncate">{user.email}</p>
+            </>
+          ) : (
+            <>
+              <p className="font-semibold">Mehmon foydalanuvchi</p>
+              <p className="text-xs text-gray-400">Kirish uchun ro'yxatdan o'ting</p>
+            </>
+          )}
         </div>
       </div>
+
+      {!user && (
+        <div className="flex gap-2 mb-4">
+          <button onClick={onLogin} className="flex-1 border border-white/10 rounded-xl py-2.5 text-sm font-medium">Kirish</button>
+          <button onClick={onSignup} className="flex-1 bg-violet-600 hover:bg-violet-500 transition rounded-xl py-2.5 text-sm font-semibold">Ro'yxatdan o'tish</button>
+        </div>
+      )}
+
       <div className="space-y-2 mb-6">
         {["Buyurtmalarim", "Yetkazib berish manzillari", "To'lov usullari", "Sozlamalar", "Yordam"].map((item) => (
           <button key={item} onClick={() => onOpenSection(item)} className="w-full bg-[#14141c] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between text-sm">
@@ -874,6 +1129,10 @@ function ProfileView({ desktop, onAdminClick, onOpenSection }) {
           </button>
         ))}
       </div>
+
+      {user && (
+        <button onClick={onLogout} className="w-full text-center text-sm text-red-400 py-2">Tizimdan chiqish</button>
+      )}
     </div>
   );
 }
