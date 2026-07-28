@@ -257,6 +257,7 @@ export default function HyperOnMarketplace() {
     setReviewSubmitting(false);
     if (err) { setReviewError("Sharh yuborilmadi. Qayta urinib ko'ring."); return; }
     setDetailReviews((prev) => [{ ...review, created_at: new Date().toISOString() }, ...prev]);
+    setAllReviews((prev) => [...prev, { id: review.id, product_id: review.product_id, rating: review.rating }]);
     setReviewComment("");
     setReviewRating(5);
   }
@@ -271,12 +272,16 @@ export default function HyperOnMarketplace() {
   const logoClickCount = useRef(0);
   const logoClickTimer = useRef(null);
 
+  const [allReviews, setAllReviews] = useState([]);
+
   useEffect(() => {
     (async () => {
       const stored = await loadProducts();
       setProducts(Array.isArray(stored) ? stored : []);
       const storesData = await loadStores();
       setStores(Array.isArray(storesData) ? storesData : []);
+      const { data: reviewsData } = await supabase.from("reviews").select("id, product_id, rating");
+      setAllReviews(Array.isArray(reviewsData) ? reviewsData : []);
       setLoaded(true);
     })();
   }, []);
@@ -285,11 +290,29 @@ export default function HyperOnMarketplace() {
     const map = {};
     products.forEach((p) => {
       if (!p.brand) return;
-      if (!map[p.brand]) map[p.brand] = { name: p.brand, rating: BRAND_RATINGS[p.brand] || 4.5, count: 0 };
+      if (!map[p.brand]) map[p.brand] = { name: p.brand, count: 0 };
       map[p.brand].count += 1;
     });
     return Object.values(map);
   }, [products]);
+
+  const storeRatings = useMemo(() => {
+    const productBrand = {};
+    products.forEach((p) => { productBrand[p.id] = p.brand; });
+    const sums = {};
+    allReviews.forEach((r) => {
+      const brand = productBrand[r.product_id];
+      if (!brand) return;
+      if (!sums[brand]) sums[brand] = { total: 0, count: 0 };
+      sums[brand].total += r.rating;
+      sums[brand].count += 1;
+    });
+    const result = {};
+    Object.keys(sums).forEach((brand) => {
+      result[brand] = { avg: sums[brand].total / sums[brand].count, count: sums[brand].count };
+    });
+    return result;
+  }, [allReviews, products]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -534,11 +557,11 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
           ) : page === "profile" ? (
             <ProfileView onOpenSection={setProfileSection} user={currentUser} userName={currentUserName} onLogin={() => setAuthModal("login")} onSignup={() => setAuthModal("signup")} onLogout={handleLogout} />
           ) : page === "storeDetail" ? (
-            <StoreDetailView store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onBack={() => setPage("home")} onOpenDetail={openProductDetail} />
+            <StoreDetailView store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onBack={() => setPage("home")} onOpenDetail={openProductDetail} storeRatings={storeRatings} />
           ) : page === "productDetail" && detailProduct ? (
             <ProductDetailPage product={detailProduct} reviews={detailReviews} reviewsLoading={reviewsLoading} currentUser={currentUser} addToCart={addToCart} reviewRating={reviewRating} setReviewRating={setReviewRating} reviewComment={reviewComment} setReviewComment={setReviewComment} reviewError={reviewError} reviewSubmitting={reviewSubmitting} submitReview={submitReview} onBack={closeProductDetail} onRequireLogin={() => setAuthModal("login")} />
           ) : (
-            <StoreView products={filteredProducts} brands={brands} stores={stores} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onOpenAI={() => setShowAIModal(true)} onOpenDetail={openProductDetail} />
+            <StoreView products={filteredProducts} brands={brands} stores={stores} storeRatings={storeRatings} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onOpenAI={() => setShowAIModal(true)} onOpenDetail={openProductDetail} />
           )}
         </div>
 
@@ -583,11 +606,11 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
         ) : page === "profile" ? (
           <ProfileView desktop onOpenSection={setProfileSection} user={currentUser} userName={currentUserName} onLogin={() => setAuthModal("login")} onSignup={() => setAuthModal("signup")} onLogout={handleLogout} />
         ) : page === "storeDetail" ? (
-          <StoreDetailView desktop store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onBack={() => setPage("home")} onOpenDetail={openProductDetail} />
+          <StoreDetailView desktop store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onBack={() => setPage("home")} onOpenDetail={openProductDetail} storeRatings={storeRatings} />
         ) : page === "productDetail" && detailProduct ? (
           <ProductDetailPage desktop product={detailProduct} reviews={detailReviews} reviewsLoading={reviewsLoading} currentUser={currentUser} addToCart={addToCart} reviewRating={reviewRating} setReviewRating={setReviewRating} reviewComment={reviewComment} setReviewComment={setReviewComment} reviewError={reviewError} reviewSubmitting={reviewSubmitting} submitReview={submitReview} onBack={closeProductDetail} onRequireLogin={() => setAuthModal("login")} />
         ) : (
-          <StoreView desktop products={filteredProducts} brands={brands} stores={stores} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onOpenAI={() => setShowAIModal(true)} onOpenDetail={openProductDetail} />
+          <StoreView desktop products={filteredProducts} brands={brands} stores={stores} storeRatings={storeRatings} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onOpenAI={() => setShowAIModal(true)} onOpenDetail={openProductDetail} />
         )}
       </div>
 
@@ -930,7 +953,7 @@ function ProductCard({ p, isFav, toggleFavorite, addToCart, onOpenDetail }) {
   );
 }
 
-function StoreView({ products, brands, stores, onSelectStore, query, setQuery, activeCategory, setActiveCategory, favorites, toggleFavorite, addToCart, gridCols, desktop, onOpenAI, onOpenDetail }) {
+function StoreView({ products, brands, stores, storeRatings, onSelectStore, query, setQuery, activeCategory, setActiveCategory, favorites, toggleFavorite, addToCart, gridCols, desktop, onOpenAI, onOpenDetail }) {
   return (
     <div>
       <div className={`flex items-center gap-2 bg-[#14141c] border border-white/10 rounded-2xl px-4 py-3 mb-4 ${desktop ? "max-w-xl" : ""}`}>
@@ -948,7 +971,7 @@ function StoreView({ products, brands, stores, onSelectStore, query, setQuery, a
           </div>
           <div className={desktop ? "grid grid-cols-6 gap-3" : "flex gap-3 overflow-x-auto no-scrollbar"}>
             {stores.map((s) => {
-              const rating = BRAND_RATINGS[s.name] || 4.5;
+              const info = storeRatings[s.name];
               return (
                 <button key={s.id} onClick={() => onSelectStore(s.id)} className={`${desktop ? "" : "shrink-0 w-24"} bg-[#14141c] border border-white/10 rounded-2xl p-3 flex flex-col items-center gap-2 text-left hover:border-violet-500/50 transition`}>
                   {s.logo ? (
@@ -956,7 +979,11 @@ function StoreView({ products, brands, stores, onSelectStore, query, setQuery, a
                   ) : null}
                   <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center" style={s.logo ? { display: "none" } : {}}><Store size={18} className="text-gray-300" /></div>
                   <p className="text-xs font-medium text-center truncate w-full">{s.name}</p>
-                  <p className="text-[11px] text-violet-300 flex items-center gap-0.5"><Star size={11} className="fill-violet-300" /> {rating}</p>
+                  {info ? (
+                    <p className="text-[11px] text-violet-300 flex items-center gap-0.5"><Star size={11} className="fill-violet-300" /> {info.avg.toFixed(1)}</p>
+                  ) : (
+                    <p className="text-[11px] text-gray-500">Yangi</p>
+                  )}
                 </button>
               );
             })}
@@ -991,7 +1018,7 @@ function StoreView({ products, brands, stores, onSelectStore, query, setQuery, a
   );
 }
 
-function StoreDetailView({ store, products, favorites, toggleFavorite, addToCart, gridCols, onBack, desktop, onOpenDetail }) {
+function StoreDetailView({ store, products, favorites, toggleFavorite, addToCart, gridCols, onBack, desktop, onOpenDetail, storeRatings }) {
   if (!store) {
     return (
       <div className="text-center py-16">
@@ -1000,7 +1027,7 @@ function StoreDetailView({ store, products, favorites, toggleFavorite, addToCart
       </div>
     );
   }
-  const rating = BRAND_RATINGS[store.name] || 4.5;
+  const info = storeRatings[store.name];
   return (
     <div className={desktop ? "max-w-4xl" : ""}>
       <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-400 mb-3"><ArrowLeft size={15} /> Ortga</button>
@@ -1020,7 +1047,10 @@ function StoreDetailView({ store, products, favorites, toggleFavorite, addToCart
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-extrabold truncate">{store.name}</h2>
-            <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><Star size={12} className="fill-violet-300 text-violet-300" /> {rating} · {products.length} ta mahsulot</p>
+            <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+              <Star size={12} className="fill-violet-300 text-violet-300" />
+              {info ? `${info.avg.toFixed(1)} (${info.count} baho)` : "Hali baho yo'q"} · {products.length} ta mahsulot
+            </p>
             {store.description && <p className="text-sm text-gray-300 mt-2">{store.description}</p>}
           </div>
         </div>
