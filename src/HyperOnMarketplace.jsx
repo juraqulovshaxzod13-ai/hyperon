@@ -165,6 +165,7 @@ export default function HyperOnMarketplace() {
   const [authNotice, setAuthNotice] = useState("");
 
   const [detailProduct, setDetailProduct] = useState(null);
+  const [previousPage, setPreviousPage] = useState("home");
   const [detailReviews, setDetailReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
@@ -229,13 +230,15 @@ export default function HyperOnMarketplace() {
     setReviewRating(5);
     setReviewComment("");
     setReviewError("");
+    setPreviousPage(page);
+    setPage("productDetail");
     setReviewsLoading(true);
     const data = await loadReviews(p.id);
     setDetailReviews(Array.isArray(data) ? data : []);
     setReviewsLoading(false);
   }
 
-  function closeProductDetail() { setDetailProduct(null); }
+  function closeProductDetail() { setDetailProduct(null); setPage(previousPage || "home"); }
 
   async function submitReview() {
     if (!currentUser) { setAuthModal("login"); return; }
@@ -532,6 +535,8 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
             <ProfileView onOpenSection={setProfileSection} user={currentUser} userName={currentUserName} onLogin={() => setAuthModal("login")} onSignup={() => setAuthModal("signup")} onLogout={handleLogout} />
           ) : page === "storeDetail" ? (
             <StoreDetailView store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onBack={() => setPage("home")} onOpenDetail={openProductDetail} />
+          ) : page === "productDetail" && detailProduct ? (
+            <ProductDetailPage product={detailProduct} reviews={detailReviews} reviewsLoading={reviewsLoading} currentUser={currentUser} addToCart={addToCart} reviewRating={reviewRating} setReviewRating={setReviewRating} reviewComment={reviewComment} setReviewComment={setReviewComment} reviewError={reviewError} reviewSubmitting={reviewSubmitting} submitReview={submitReview} onBack={closeProductDetail} onRequireLogin={() => setAuthModal("login")} />
           ) : (
             <StoreView products={filteredProducts} brands={brands} stores={stores} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-2" onOpenAI={() => setShowAIModal(true)} onOpenDetail={openProductDetail} />
           )}
@@ -579,6 +584,8 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
           <ProfileView desktop onOpenSection={setProfileSection} user={currentUser} userName={currentUserName} onLogin={() => setAuthModal("login")} onSignup={() => setAuthModal("signup")} onLogout={handleLogout} />
         ) : page === "storeDetail" ? (
           <StoreDetailView desktop store={stores.find((s) => s.id === selectedStoreId)} products={products.filter((p) => p.brand === (stores.find((s) => s.id === selectedStoreId) || {}).name)} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onBack={() => setPage("home")} onOpenDetail={openProductDetail} />
+        ) : page === "productDetail" && detailProduct ? (
+          <ProductDetailPage desktop product={detailProduct} reviews={detailReviews} reviewsLoading={reviewsLoading} currentUser={currentUser} addToCart={addToCart} reviewRating={reviewRating} setReviewRating={setReviewRating} reviewComment={reviewComment} setReviewComment={setReviewComment} reviewError={reviewError} reviewSubmitting={reviewSubmitting} submitReview={submitReview} onBack={closeProductDetail} onRequireLogin={() => setAuthModal("login")} />
         ) : (
           <StoreView desktop products={filteredProducts} brands={brands} stores={stores} onSelectStore={goToStore} query={query} setQuery={setQuery} activeCategory={activeCategory} setActiveCategory={setActiveCategory} favorites={favorites} toggleFavorite={toggleFavorite} addToCart={addToCart} gridCols="grid-cols-4 lg:grid-cols-5" onOpenAI={() => setShowAIModal(true)} onOpenDetail={openProductDetail} />
         )}
@@ -808,74 +815,77 @@ Faqat katalogda mavjud id larni ishlat. 2 dan 4 tagacha mahsulot tanla, agar mos
         </div>
       )}
 
-      {detailProduct && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[105] px-4">
-          <div className="bg-[#14141c] border border-white/10 rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto">
-            <div className="relative">
-              <ProductImage name={detailProduct.name} image={detailProduct.image} className="w-full aspect-square object-cover" />
-              <button type="button" onClick={closeProductDetail} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center" aria-label="Yopish"><X size={16} /></button>
-            </div>
-            <div className="p-5">
-              <p className="text-lg font-bold leading-tight">{detailProduct.name}</p>
-              <p className="text-sm text-gray-400 mb-2">{detailProduct.brand}</p>
-              <div className="flex items-center gap-1 mb-3">
-                {[1, 2, 3, 4, 5].map((n) => {
-                  const avg = detailReviews.length ? detailReviews.reduce((a, r) => a + r.rating, 0) / detailReviews.length : 0;
-                  return <Star key={n} size={16} className={n <= Math.round(avg) ? "fill-violet-400 text-violet-400" : "text-gray-600"} />;
-                })}
-                <span className="text-xs text-gray-400 ml-1">{detailReviews.length > 0 ? `${(detailReviews.reduce((a, r) => a + r.rating, 0) / detailReviews.length).toFixed(1)} (${detailReviews.length} sharh)` : "Hali sharh yo'q"}</span>
-              </div>
-              <p className="text-xl font-extrabold mb-4">{formatSum(detailProduct.price)}</p>
-              <button type="button" onClick={() => { addToCart(detailProduct.id); }} className="w-full bg-violet-600 hover:bg-violet-500 transition rounded-xl py-2.5 text-sm font-semibold mb-6">Savatchaga qo'shish</button>
+    </div>
+  );
+}
 
-              <div className="border-t border-white/10 pt-4">
-                <p className="font-semibold mb-3">Sharhlar</p>
+function ProductDetailPage({ product, reviews, reviewsLoading, currentUser, addToCart, reviewRating, setReviewRating, reviewComment, setReviewComment, reviewError, reviewSubmitting, submitReview, onBack, onRequireLogin, desktop }) {
+  const avg = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
+  return (
+    <div className={desktop ? "max-w-3xl mx-auto" : ""}>
+      <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-400 mb-3"><ArrowLeft size={15} /> Ortga</button>
+      <div className={desktop ? "grid grid-cols-2 gap-8 items-start" : ""}>
+        <div className="rounded-2xl overflow-hidden border border-white/10">
+          <ProductImage name={product.name} image={product.image} className="w-full aspect-square object-cover" />
+        </div>
+        <div className={desktop ? "" : "pt-5"}>
+          <p className="text-xl font-bold leading-tight">{product.name}</p>
+          <p className="text-sm text-gray-400 mb-2">{product.brand}</p>
+          <div className="flex items-center gap-1 mb-3">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <Star key={n} size={16} className={n <= Math.round(avg) ? "fill-violet-400 text-violet-400" : "text-gray-600"} />
+            ))}
+            <span className="text-xs text-gray-400 ml-1">{reviews.length > 0 ? `${avg.toFixed(1)} (${reviews.length} sharh)` : "Hali sharh yo'q"}</span>
+          </div>
+          <p className="text-2xl font-extrabold mb-4">{formatSum(product.price)}</p>
+          <button type="button" onClick={() => addToCart(product.id)} className="w-full bg-violet-600 hover:bg-violet-500 transition rounded-xl py-2.5 text-sm font-semibold mb-6">Savatchaga qo'shish</button>
 
-                {currentUser ? (
-                  <div className="bg-black/30 border border-white/10 rounded-xl p-3 mb-4">
-                    <p className="text-xs text-gray-400 mb-1.5">Bahoingiz</p>
-                    <div className="flex items-center gap-1 mb-2">
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <button key={n} type="button" onClick={() => setReviewRating(n)} aria-label={`${n} yulduz`}>
-                          <Star size={20} className={n <= reviewRating ? "fill-violet-400 text-violet-400" : "text-gray-600"} />
-                        </button>
-                      ))}
-                    </div>
-                    <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={2} placeholder="Mahsulot haqida fikringiz..." className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500 resize-none mb-2" />
-                    {reviewError && <p className="text-xs text-red-400 mb-2">{reviewError}</p>}
-                    <button type="button" onClick={submitReview} disabled={reviewSubmitting} className="w-full bg-violet-600/90 hover:bg-violet-500 transition rounded-xl py-2 text-xs font-semibold disabled:opacity-50">
-                      {reviewSubmitting ? "Yuborilmoqda..." : "Sharh qoldirish"}
+          <div className="border-t border-white/10 pt-4">
+            <p className="font-semibold mb-3">Sharhlar</p>
+
+            {currentUser ? (
+              <div className="bg-black/30 border border-white/10 rounded-xl p-3 mb-4">
+                <p className="text-xs text-gray-400 mb-1.5">Bahoingiz</p>
+                <div className="flex items-center gap-1 mb-2">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button key={n} type="button" onClick={() => setReviewRating(n)} aria-label={`${n} yulduz`}>
+                      <Star size={20} className={n <= reviewRating ? "fill-violet-400 text-violet-400" : "text-gray-600"} />
                     </button>
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => setAuthModal("login")} className="w-full border border-white/10 rounded-xl py-2.5 text-sm text-gray-300 mb-4">Sharh qoldirish uchun tizimga kiring</button>
-                )}
-
-                {reviewsLoading ? (
-                  <p className="text-xs text-gray-500 text-center py-4">Yuklanmoqda...</p>
-                ) : detailReviews.length === 0 ? (
-                  <p className="text-xs text-gray-500 text-center py-4">Hali sharhlar yo'q. Birinchi bo'lib fikr bildiring!</p>
-                ) : (
-                  <div className="space-y-3">
-                    {detailReviews.map((r) => (
-                      <div key={r.id} className="bg-black/30 border border-white/10 rounded-xl p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-sm font-medium">{r.user_name}</p>
-                          <div className="flex items-center gap-0.5">
-                            {[1, 2, 3, 4, 5].map((n) => <Star key={n} size={12} className={n <= r.rating ? "fill-violet-400 text-violet-400" : "text-gray-600"} />)}
-                          </div>
-                        </div>
-                        <p className="text-sm text-gray-300">{r.comment}</p>
-                        <p className="text-[11px] text-gray-500 mt-1">{new Date(r.created_at).toLocaleDateString("uz-UZ")}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  ))}
+                </div>
+                <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={2} placeholder="Mahsulot haqida fikringiz..." className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500 resize-none mb-2" />
+                {reviewError && <p className="text-xs text-red-400 mb-2">{reviewError}</p>}
+                <button type="button" onClick={submitReview} disabled={reviewSubmitting} className="w-full bg-violet-600/90 hover:bg-violet-500 transition rounded-xl py-2 text-xs font-semibold disabled:opacity-50">
+                  {reviewSubmitting ? "Yuborilmoqda..." : "Sharh qoldirish"}
+                </button>
               </div>
-            </div>
+            ) : (
+              <button type="button" onClick={onRequireLogin} className="w-full border border-white/10 rounded-xl py-2.5 text-sm text-gray-300 mb-4">Sharh qoldirish uchun tizimga kiring</button>
+            )}
+
+            {reviewsLoading ? (
+              <p className="text-xs text-gray-500 text-center py-4">Yuklanmoqda...</p>
+            ) : reviews.length === 0 ? (
+              <p className="text-xs text-gray-500 text-center py-4">Hali sharhlar yo'q. Birinchi bo'lib fikr bildiring!</p>
+            ) : (
+              <div className="space-y-3">
+                {reviews.map((r) => (
+                  <div key={r.id} className="bg-black/30 border border-white/10 rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm font-medium">{r.user_name}</p>
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((n) => <Star key={n} size={12} className={n <= r.rating ? "fill-violet-400 text-violet-400" : "text-gray-600"} />)}
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-300">{r.comment}</p>
+                    <p className="text-[11px] text-gray-500 mt-1">{new Date(r.created_at).toLocaleDateString("uz-UZ")}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
